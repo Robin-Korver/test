@@ -1,0 +1,42 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+      - staging
+      - dev
+      - feature/*
+      - hotfix
+  pull_request:
+    branches:
+      - staging
+      - dev
+      - feature/*
+      - hotfix
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions/setup-node@v1
+        with:
+          node-version: "10.x"
+      - name: Install Salesforce CLI
+        run: |
+          npm install sfdx-cli
+          node_modules/sfdx-cli/bin/run --version
+          node_modules/sfdx-cli/bin/run plugins --core
+      - name: Create hub key
+        run: openssl enc -d -in assets/server.key.enc -out assets/server.key -K ${{ secrets.DECRYPTION_KEY}} -iv ${{ secrets.DECRYPTION_IV}}
+      - name: Setup Org
+        run: node_modules/sfdx-cli/bin/run force:auth:jwt:grant --clientid ${{ secrets.HUB_CONSUMER_KEY}} --jwtkeyfile assets/server.key --username ${{ secrets.HUB_SFDC_USER}} --setdefaultdevhubusername -a hub
+      - name: Create Scratch Org
+        run: node_modules/sfdx-cli/bin/run force:org:create -s -f config/project-scratch-def.json -a build_ciorg --wait 5
+      - name: Push source to Org
+        run: node_modules/sfdx-cli/bin/run force:source:push -u build_ciorg
+      - name: Run Apex Tests
+        run: |
+          mkdir -p ~/junit
+          node_modules/sfdx-cli/bin/run force:apex:test:run -c -d ~/junit -r junit --wait 5
+      - name: Delete Useless Scratch Org
+        run: node_modules/sfdx-cli/bin/run force:org:delete -u build_ciorg -p
